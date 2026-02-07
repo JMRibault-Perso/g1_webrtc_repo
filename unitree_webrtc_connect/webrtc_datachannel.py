@@ -5,6 +5,7 @@ import struct
 import sys
 from .msgs.pub_sub import WebRTCDataChannelPubSub
 from .lidar.lidar_decoder_unified import UnifiedLidarDecoder
+from .lidar.pointcloud2_decoder import PointCloud2Decoder
 from .msgs.heartbeat import WebRTCDataChannelHeartBeat
 from .msgs.validation import WebRTCDataChannelValidaton
 from .msgs.rtc_inner_req import WebRTCDataChannelRTCInnerReq
@@ -134,14 +135,24 @@ class WebRTCDataChannel:
         return decoded_json
 
     def deal_array_buffer_for_lidar(self, buffer):
-        header_length, = struct.unpack_from('<I', buffer, 0)
-        json_data = buffer[8:8 + header_length]
-        binary_data = buffer[8 + header_length:]
+        json_len, binary_len = struct.unpack_from('<II', buffer, 0)
+        json_data = buffer[8:8 + json_len]
+        if binary_len > 0:
+            binary_data = buffer[8 + json_len:8 + json_len + binary_len]
+        else:
+            binary_data = buffer[8 + json_len:]
 
         decoded_json = json.loads(json_data.decode('utf-8'))
 
-        decoded_data = self.decoder.decode(binary_data, decoded_json['data'])
+        if not hasattr(self, '_pointcloud2_decoder'):
+            self._pointcloud2_decoder = PointCloud2Decoder()
 
+        decoded_data = self._pointcloud2_decoder.decode(binary_data, decoded_json.get('data', {}))
+        if decoded_data.get('point_count', 0) > 0:
+            decoded_json['data']['data'] = decoded_data
+            return decoded_json
+
+        decoded_data = self.decoder.decode(binary_data, decoded_json['data'])
         decoded_json['data']['data'] = decoded_data
         return decoded_json
 
